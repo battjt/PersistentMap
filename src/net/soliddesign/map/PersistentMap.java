@@ -13,6 +13,9 @@ import java.util.stream.Collectors;
 import java.util.stream.Stream;
 import java.util.stream.StreamSupport;
 
+import com.google.gson.Gson;
+import com.google.gson.JsonSyntaxException;
+
 /**
  * Simple disk backed map.
  *
@@ -62,8 +65,11 @@ public class PersistentMap<K, V> implements Map<K, V>, Closeable {
 				b -> new String(b));
 	}
 
-	static public PersistentMap<Object, Object> gsonMap(File file) {
-		return null;
+	static public <K, V> PersistentMap<K, V> gsonMap(File file, int indexes, Class<K> keyClass, Class<V> valueClass)
+			throws IOException {
+		Gson gson = new Gson();
+		return new PersistentMap<K, V>(file, indexes, k -> gson.toJson(k).getBytes(), v -> gson.toJson(v).getBytes(),
+				b -> gson.fromJson(new String(b), keyClass), b -> gson.fromJson(new String(b), valueClass));
 	}
 
 	// so that we can evolve the file format
