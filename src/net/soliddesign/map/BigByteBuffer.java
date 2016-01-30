@@ -34,6 +34,7 @@ public class BigByteBuffer implements AutoCloseable {
 		try {
 			if (position + size > file.length()) {
 				long newLength = (Long.highestOneBit(position + size) << 1) - 1;
+				//System.err.println("resize to " + newLength+1);
 				file.seek(newLength);
 				file.write(0);
 				if (!buffers.isEmpty())
@@ -58,7 +59,7 @@ public class BigByteBuffer implements AutoCloseable {
 		}
 		buf.position(0x7FFFFFFF & (int) position);
 		position += size;
-		length=Math.max(length, position);
+		length = Math.max(length, position);
 		return buf;
 
 	}

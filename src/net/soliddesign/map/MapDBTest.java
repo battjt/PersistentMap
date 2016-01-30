@@ -3,6 +3,9 @@ package net.soliddesign.map;
 import static org.junit.Assert.assertEquals;
 
 import java.io.File;
+import java.nio.file.Files;
+import java.nio.file.Paths;
+import java.time.Instant;
 
 import org.junit.Test;
 
@@ -38,13 +41,28 @@ public class MapDBTest {
 	}
 
 	@Test
-	public void obj() throws Exception {
+	public void gsonObjects() throws Exception {
 		File f = File.createTempFile("test.", ".mapdb");
 		try (PersistentMap<String, Person> map = PersistentMap.gsonMap(f, 5, String.class, Person.class)) {
 			map.put("Joe", new Person("Joseph", 44));
 		}
 		try (PersistentMap<String, Person> map = PersistentMap.gsonMap(f, -1, String.class, Person.class)) {
 			assertEquals(44, map.get("Joe").age);
+		}
+	}
+
+	long i = 0;
+
+	@Test
+	public void lotsaObjects() throws Exception {
+		File f = File.createTempFile("test.", ".mapdb");
+		int count = (int) Files.lines(Paths.get("/usr/share/dict/words")).count();
+		try (PersistentMap<String, Person> map = PersistentMap.gsonMap(f, count, String.class, Person.class)) {
+			Files.lines(Paths.get("/usr/share/dict/words")).forEach(w -> map.put(w, new Person(w, w.length())));
+		}
+		try (PersistentMap<String, Person> map = PersistentMap.gsonMap(f, -1, String.class, Person.class)) {
+			assertEquals(3, map.get("cat").age);
+			assertEquals(5, map.get("money").age);
 		}
 	}
 }

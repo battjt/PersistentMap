@@ -250,8 +250,9 @@ public class PersistentMap<K, V> implements Map<K, V>, Closeable {
 		// read the index entry
 		buf.position(indexPointer + 8 * bucket(key));
 		long listPointer = buf.getLong();
-		System.err.println("PUT key:" + key + " bucket:" + bucket(key) + " list:" + (indexPointer + 8 * bucket(key))
-				+ " listPointer:" + listPointer);
+		// System.err.println("PUT key:" + key + " bucket:" + bucket(key) + "
+		// list:" + (indexPointer + 8 * bucket(key))
+		// + " listPointer:" + listPointer);
 		while (true) {
 			if (listPointer < 0) {
 				// no replacement, just append
