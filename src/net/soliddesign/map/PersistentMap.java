@@ -2,6 +2,7 @@ package net.soliddesign.map;
 
 import java.io.Closeable;
 import java.io.File;
+import java.io.FileNotFoundException;
 import java.io.IOException;
 import java.util.AbstractMap;
 import java.util.Collection;
@@ -86,10 +87,23 @@ public class PersistentMap<K, V> implements Map<K, V>, Closeable {
 	final private Function<byte[], K> unmarshalKey;
 	final private Function<byte[], V> unmarshalValue;
 
+	/**
+	 * 
+	 * @param fileName
+	 * @param indexSize Number of index slots.  -1 for existing file.
+	 * @param marshalKey
+	 * @param marshalValue
+	 * @param unmarshalKey
+	 * @param unmarshalValue
+	 * @throws IOException
+	 */
 	public PersistentMap(File fileName, int indexSize, Function<K, byte[]> marshalKey, Function<V, byte[]> marshalValue,
 			Function<byte[], K> unmarshalKey, Function<byte[], V> unmarshalValue) throws IOException {
-		buf = new BigByteBuffer(fileName);
+
 		if (indexSize < 0) {
+			if (!fileName.exists())
+				throw new FileNotFoundException("PersistentMap file not found:" + fileName);
+			buf = new BigByteBuffer(fileName);
 			int version = buf.getInt();
 			if (VERSION != version) {
 				throw new IllegalStateException("Invalid version:" + version);
@@ -97,6 +111,9 @@ public class PersistentMap<K, V> implements Map<K, V>, Closeable {
 			this.indexSize = buf.getInt();
 			indexPointer = buf.position();
 		} else {
+			if (fileName.exists()&&fileName.length()>0)
+				throw new IllegalStateException("PersistentMap file already exists:" + fileName);
+			buf = new BigByteBuffer(fileName);
 			this.indexSize = indexSize;
 			buf.putInt(VERSION);
 			buf.putInt(indexSize);

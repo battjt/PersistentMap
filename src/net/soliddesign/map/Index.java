@@ -13,9 +13,7 @@ public class Index<T, K> {
 	}
 
 	void insert(T obj) {
-		K key = fn.apply(obj);
-		
-		map.put(key, obj);
+		map.put(fn.apply(obj), obj);
 	}
 
 }

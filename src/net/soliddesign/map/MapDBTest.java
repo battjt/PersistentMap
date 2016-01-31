@@ -1,13 +1,17 @@
 package net.soliddesign.map;
 
 import static org.junit.Assert.assertEquals;
+import static org.junit.Assert.assertNull;
 
 import java.io.File;
 import java.nio.file.Files;
 import java.nio.file.Paths;
-import java.time.Instant;
+import java.util.Map;
 
 import org.junit.Test;
+
+import com.google.gson.Gson;
+import com.google.gson.reflect.TypeToken;
 
 public class MapDBTest {
 	@Test
@@ -17,14 +21,25 @@ public class MapDBTest {
 			map.put("one", "red");
 			map.put("two", "blue");
 			map.put("three", "green");
+			map.put("four", "mellon");
 		}
 		try (PersistentMap<String, String> map = PersistentMap.stringMap(f, -1)) {
 			assertEquals("red", map.get("one"));
 			assertEquals("blue", map.get("two"));
 			assertEquals("green", map.get("three"));
+			assertEquals("mellon", map.remove("four"));
+			assertNull(map.get("four"));
+		}
+		try (PersistentMap<String, String> map = PersistentMap.stringMap(f, -1)) {
+			assertNull(map.get("four"));
+			// System.err.println(new Gson().toJson(map));
+			assertEquals(new Gson().fromJson("{'one':'red','two':'blue','three':'green'}",
+					new TypeToken<Map<String, String>>() {
+					}.getType()), map);
 		} finally {
 			f.delete();
 		}
+
 	}
 
 	static class Person {
@@ -48,10 +63,9 @@ public class MapDBTest {
 		}
 		try (PersistentMap<String, Person> map = PersistentMap.gsonMap(f, -1, String.class, Person.class)) {
 			assertEquals(44, map.get("Joe").age);
+			assertEquals("Joseph", map.get("Joe").name);
 		}
 	}
-
-	long i = 0;
 
 	@Test
 	public void lotsaObjects() throws Exception {
