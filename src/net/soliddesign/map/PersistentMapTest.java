@@ -13,7 +13,7 @@ import org.junit.Test;
 import com.google.gson.Gson;
 import com.google.gson.reflect.TypeToken;
 
-public class MapDBTest {
+public class PersistentMapTest {
 	@Test
 	public void simple() throws Exception {
 		File f = File.createTempFile("test.", ".mapdb");
