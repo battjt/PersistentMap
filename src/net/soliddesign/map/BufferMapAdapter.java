@@ -1,6 +1,5 @@
 package net.soliddesign.map;
 
-import java.io.Closeable;
 import java.nio.ByteBuffer;
 import java.util.AbstractMap;
 import java.util.Collection;
@@ -106,7 +105,7 @@ public class BufferMapAdapter<K, V> implements CloseableMap<K, V> {
 
 	@Override
 	public void close() throws Exception {
-		if (map instanceof Closeable)
-			((Closeable) map).close();
+		if (map instanceof AutoCloseable)
+			((AutoCloseable) map).close();
 	}
 }
