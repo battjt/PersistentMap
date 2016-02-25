@@ -7,13 +7,12 @@ import java.io.IOException;
 import java.nio.ByteBuffer;
 import java.util.AbstractMap;
 import java.util.Collection;
-import java.util.Iterator;
 import java.util.Map;
 import java.util.Set;
 import java.util.function.Function;
 import java.util.stream.Collectors;
+import java.util.stream.IntStream;
 import java.util.stream.Stream;
-import java.util.stream.StreamSupport;
 
 import com.google.gson.Gson;
 
@@ -22,12 +21,22 @@ public class PersistentBufferMap implements Map<ByteBuffer, ByteBuffer>, Closeab
 	// so that we can evolve the file format
 	static final private int VERSION = 1;
 
+	// maximum number of bytes to sample from key for hash value.
+	private static final int SAMPLES = 128;
+
 	final private BigByteBuffer buf;
 	/** start of index */
 	final private long indexPointer;
 	/** number of entries in index */
 	final private int indexSize;
 
+	/**
+	 * 
+	 * @param fileName
+	 * @param indexSize
+	 *            Expected size of Map. -1 to read existing map from file.
+	 * @throws IOException
+	 */
 	public PersistentBufferMap(File fileName, int indexSize) throws IOException {
 		if (indexSize < 0) {
 			// read index from file
@@ -55,13 +64,16 @@ public class PersistentBufferMap implements Map<ByteBuffer, ByteBuffer>, Closeab
 
 	private int bucket(ByteBuffer key) {
 		int h = 1;
-		for (int i = key.limit() - 1; i >= 0; i--) {
+		// don't sample more than SAMPLES
+		int step = key.limit() > SAMPLES ? key.limit() / SAMPLES : 1;
+		for (int i = key.limit() - 1; i >= 0; i = i - step) {
 			h = 31 * h + (int) key.get(i);
 		}
 		return (0x7FFFFFFF & h) % indexSize;
 	}
 
 	@Override
+	/** Remove all contents of this map. */
 	public void clear() {
 		buf.position(indexPointer);
 		for (int i = 0; i < indexSize; i++) {
@@ -92,42 +104,19 @@ public class PersistentBufferMap implements Map<ByteBuffer, ByteBuffer>, Closeab
 		return stream().collect(Collectors.toSet());
 	}
 
-	public Iterator<java.util.Map.Entry<ByteBuffer, ByteBuffer>> entrySetIterator() {
-		return new Iterator<java.util.Map.Entry<ByteBuffer, ByteBuffer>>() {
-			long index = 0;
-			long item = -1;
-			java.util.Map.Entry<ByteBuffer, ByteBuffer> next;
-
-			{
-				next = calc();
+	public Stream<java.util.Map.Entry<ByteBuffer, ByteBuffer>> stream() {
+		return IntStream.range(0, indexSize).sequential().mapToObj(i -> {
+			Stream.Builder<java.util.Map.Entry<ByteBuffer, ByteBuffer>> sb = Stream.builder();
+			long offset = indexPointer + Long.BYTES * i;
+			buf.position(offset);
+			offset = buf.getLong();
+			while (offset > 0) {
+				buf.position(offset);
+				sb.add(new AbstractMap.SimpleEntry<ByteBuffer, ByteBuffer>(buf.getBuffer(), buf.getBuffer()));
+				offset = buf.getLong();
 			}
-
-			private java.util.Map.Entry<ByteBuffer, ByteBuffer> calc() {
-				while (item < 0) {
-					if (index >= indexSize) {
-						return null;
-					}
-					buf.position(indexPointer + index++ * 8);
-					item = buf.getLong();
-				}
-				buf.position(item);
-				Entry<ByteBuffer, ByteBuffer> e = new AbstractMap.SimpleEntry<ByteBuffer, ByteBuffer>(read(), read());
-				item = buf.getLong();
-				return e;
-			}
-
-			@Override
-			public boolean hasNext() {
-				return next != null;
-			}
-
-			@Override
-			public java.util.Map.Entry<ByteBuffer, ByteBuffer> next() {
-				java.util.Map.Entry<ByteBuffer, ByteBuffer> o = next;
-				next = calc();
-				return o;
-			}
-		};
+			return sb.build();
+		}).flatMap(x -> x);
 	}
 
 	@Override
@@ -139,26 +128,24 @@ public class PersistentBufferMap implements Map<ByteBuffer, ByteBuffer>, Closeab
 	public ByteBuffer get(Object key) {
 		// read the index entry
 		int bucket = bucket((ByteBuffer) key);
-		buf.position(indexPointer + 8 * bucket);
+		buf.position(indexPointer + Long.BYTES * bucket);
 		long listPointer = buf.getLong();
-		while (true) {
-			if (listPointer < 0) {
-				return null;
-			}
+		while (listPointer >= 0) {
 			// iterate through the bucket of pairs
 			buf.position(listPointer);
-			ByteBuffer candidate = read();
-			ByteBuffer value = read();
+			ByteBuffer candidate = buf.getBuffer();
+			ByteBuffer value = buf.getBuffer();
 			if (candidate.equals(key)) {
 				return value;
 			}
 			listPointer = buf.getLong();
 		}
+		return null;
 	}
 
 	@Override
 	public int hashCode() {
-		return entrySet().hashCode();
+		return stream().mapToInt(b -> b.hashCode()).sum();
 	}
 
 	@Override
@@ -169,7 +156,7 @@ public class PersistentBufferMap implements Map<ByteBuffer, ByteBuffer>, Closeab
 			if (index >= indexSize) {
 				return true;
 			}
-			buf.position(indexPointer + index++ * 8);
+			buf.position(indexPointer + index++ * Long.BYTES);
 			item = buf.getLong();
 		}
 		return false;
@@ -188,26 +175,26 @@ public class PersistentBufferMap implements Map<ByteBuffer, ByteBuffer>, Closeab
 		buf.putBuffer(value);
 		buf.putLong(-1);
 		// read the index entry
-		buf.position(indexPointer + 8 * bucket(key));
+		buf.position(indexPointer + Long.BYTES * bucket(key));
 		long listPointer = buf.getLong();
 		while (true) {
 			if (listPointer < 0) {
 				// no replacement, just append
-				buf.position(buf.position() - 8);
+				buf.position(buf.position() - Long.BYTES);
 				buf.putLong(offset);
 				return null;
 			}
-			long oldPointer = buf.position() - 8;
+			long oldPointer = buf.position() - Long.BYTES;
 			// iterate through the bucket of pairs
 			buf.position(listPointer);
-			ByteBuffer candidate = read();
-			ByteBuffer old = read();
+			ByteBuffer candidate = buf.getBuffer();
+			ByteBuffer old = buf.getBuffer();
 			if (candidate.equals(key)) {
 				// replacing old value in linked list
 				long next = buf.getLong();
 				buf.position(oldPointer);
 				buf.putLong(offset);
-				buf.position(offset - 8);
+				buf.position(offset - Long.BYTES);
 				buf.putLong(next);
 				return old;
 			}
@@ -220,23 +207,19 @@ public class PersistentBufferMap implements Map<ByteBuffer, ByteBuffer>, Closeab
 		m.forEach((k, v) -> put(k, v));
 	}
 
-	private ByteBuffer read() {
-		return buf.getBuffer();
-	}
-
 	@Override
 	public ByteBuffer remove(Object key) {
 		// read the index entry
-		buf.position(indexPointer + 8 * bucket((ByteBuffer) key));
+		buf.position(indexPointer + Long.BYTES * bucket((ByteBuffer) key));
 		long listPointer = buf.getLong();
 		while (true) {
 			if (listPointer < 0) {
 				return null;
 			}
-			long oldPointer = buf.position() - 8;
+			long oldPointer = buf.position() - Long.BYTES;
 			buf.position(listPointer);
-			ByteBuffer candidate = read();
-			ByteBuffer value = read();
+			ByteBuffer candidate = buf.getBuffer();
+			ByteBuffer value = buf.getBuffer();
 			if (candidate.equals(key)) {
 				long next = buf.getLong();
 				buf.position(oldPointer);
@@ -258,24 +241,15 @@ public class PersistentBufferMap implements Map<ByteBuffer, ByteBuffer>, Closeab
 				if (index >= indexSize) {
 					return count;
 				}
-				buf.position(indexPointer + index++ * 8);
+				buf.position(indexPointer + index++ * Long.BYTES);
 				item = buf.getLong();
 			}
 			buf.position(item);
 			count++;
-			skip();
-			skip();
+			buf.skip();
+			buf.skip();
 			item = buf.getLong();
 		}
-	}
-
-	private void skip() {
-		buf.position(buf.position() + buf.getInt() + 4);
-	}
-
-	public Stream<java.util.Map.Entry<ByteBuffer, ByteBuffer>> stream() {
-		Iterable<java.util.Map.Entry<ByteBuffer, ByteBuffer>> i = () -> entrySetIterator();
-		return StreamSupport.stream(i.spliterator(), false);
 	}
 
 	@Override

@@ -95,6 +95,16 @@ public class BufferMapAdapter<K, V> implements CloseableMap<K, V> {
 	}
 
 	@Override
+	public int hashCode() {
+		return entrySet().hashCode();
+	}
+
+	@Override
+	public boolean equals(Object obj) {
+		return entrySet().equals(obj);
+	}
+
+	@Override
 	public void close() throws Exception {
 		if (map instanceof Closeable)
 			((Closeable) map).close();

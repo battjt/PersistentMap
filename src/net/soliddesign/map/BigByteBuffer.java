@@ -4,19 +4,25 @@ import java.io.File;
 import java.io.FileNotFoundException;
 import java.io.IOException;
 import java.io.RandomAccessFile;
-import java.nio.Buffer;
 import java.nio.ByteBuffer;
 import java.nio.MappedByteBuffer;
 import java.nio.channels.FileChannel.MapMode;
 import java.util.ArrayList;
 
 public class BigByteBuffer implements AutoCloseable {
+	/** position within file */
 	private long position;
+
 	/** length of data, not length of file */
 	private long length;
+
+	/** underlying file */
 	final private RandomAccessFile file;
-	// Each map is 2G, overlapping mapped at every 1G, so the largest object
-	// can be 1G
+
+	/**
+	 * Each map is 2G, overlapping mapped at every 1G, so the largest object can
+	 * be 1G
+	 */
 	private ArrayList<MappedByteBuffer> buffers = new ArrayList<MappedByteBuffer>();
 
 	public BigByteBuffer(File fileName) throws FileNotFoundException {
@@ -25,10 +31,6 @@ public class BigByteBuffer implements AutoCloseable {
 
 	public void putInt(int value) {
 		getBuffer(Integer.BYTES).putInt(value);
-	}
-
-	public void putShort(short value) {
-		getBuffer(Short.BYTES).putShort(value);
 	}
 
 	public ByteBuffer getBuffer() {
@@ -70,12 +72,12 @@ public class BigByteBuffer implements AutoCloseable {
 		return slice;
 	}
 
-	public void putByte(byte value) {
-		getBuffer(1).put(value);
-	}
-
 	public long position() {
 		return position;
+	}
+
+	public void skip() {
+		position(position + getInt() + Integer.BYTES);
 	}
 
 	public long getLong() {
@@ -86,10 +88,6 @@ public class BigByteBuffer implements AutoCloseable {
 		position = p;
 	}
 
-	public void putBytes(byte[] bytes) {
-		getBuffer(bytes.length).put(bytes);
-	}
-
 	public void putBuffer(ByteBuffer b) {
 		getBuffer(Integer.BYTES + b.limit()).putInt(b.limit()).put(b);
 	}
@@ -98,18 +96,8 @@ public class BigByteBuffer implements AutoCloseable {
 		getBuffer(Long.BYTES).putLong(value);
 	}
 
-	public byte[] getBytes(int size) {
-		byte[] buf = new byte[size];
-		getBuffer(size).get(buf);
-		return buf;
-	}
-
 	public long length() {
 		return length;
-	}
-
-	public short getShort() {
-		return getBuffer(Short.BYTES).getShort();
 	}
 
 	public int getInt() {
