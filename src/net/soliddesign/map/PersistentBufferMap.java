@@ -18,20 +18,64 @@ import com.google.gson.Gson;
 
 public class PersistentBufferMap implements Map<ByteBuffer, ByteBuffer>, Closeable {
 
+	static public class GsonMap<K, V> extends BufferMapAdapter<K, V> {
+		public static <K, V> GsonMap<K, V> create(Map<ByteBuffer, ByteBuffer> map, Class<K> keyClass,
+				Class<V> valueClass) {
+			return new GsonMap<K, V>(map, keyClass, valueClass);
+		}
+
+		private GsonMap(Gson gson, Map<ByteBuffer, ByteBuffer> map, Class<K> keyClass, Class<V> valueClass) {
+			super(map, o -> {
+				String s = gson.toJson(o);
+				ByteBuffer bb = ByteBuffer.allocate(s.length() * 2);
+				bb.asCharBuffer().append(s);
+				return bb;
+			} , b -> b == null ? null : gson.fromJson(b.asCharBuffer().toString(), keyClass), o -> {
+				String s = gson.toJson(o);
+				ByteBuffer bb = ByteBuffer.allocate(s.length() * 2);
+				bb.asCharBuffer().append(s);
+				return bb;
+			} , b -> b == null ? null : gson.fromJson(b.asCharBuffer().toString(), valueClass));
+		}
+
+		private GsonMap(Map<ByteBuffer, ByteBuffer> map, Class<K> keyClass, Class<V> valueClass) {
+			this(new Gson(), map, keyClass, valueClass);
+		}
+	}
+
+	static public class StringMap extends BufferMapAdapter<String, String> {
+		public static StringMap create(Map<ByteBuffer, ByteBuffer> map) {
+			return new StringMap(map);
+		}
+
+		private StringMap(Map<ByteBuffer, ByteBuffer> map) {
+			super(map, s -> {
+				ByteBuffer bb = ByteBuffer.allocate(s.length() * 2);
+				bb.asCharBuffer().append(s);
+				return bb;
+			} , b -> b == null ? null : b.asCharBuffer().toString(), s -> {
+				ByteBuffer bb = ByteBuffer.allocate(s.length() * 2);
+				bb.asCharBuffer().append(s);
+				return bb;
+			} , b -> b == null ? null : b.asCharBuffer().toString());
+		}
+	}
+
 	// so that we can evolve the file format
 	static final private int VERSION = 1;
-
 	// maximum number of bytes to sample from key for hash value.
 	private static final int SAMPLES = 128;
 
 	final private BigByteBuffer buf;
+
 	/** start of index */
 	final private long indexPointer;
+
 	/** number of entries in index */
 	final private int indexSize;
 
 	/**
-	 * 
+	 *
 	 * @param fileName
 	 * @param indexSize
 	 *            Expected size of Map. -1 to read existing map from file.
@@ -40,8 +84,9 @@ public class PersistentBufferMap implements Map<ByteBuffer, ByteBuffer>, Closeab
 	public PersistentBufferMap(File fileName, int indexSize) throws IOException {
 		if (indexSize < 0) {
 			// read index from file
-			if (!fileName.exists())
+			if (!fileName.exists()) {
 				throw new FileNotFoundException("PersistentMap file not found:" + fileName);
+			}
 			buf = new BigByteBuffer(fileName);
 			int version = buf.getInt();
 			if (VERSION != version) {
@@ -51,8 +96,9 @@ public class PersistentBufferMap implements Map<ByteBuffer, ByteBuffer>, Closeab
 			indexPointer = buf.position();
 		} else {
 			// create new file with index of side indexSize
-			if (fileName.exists() && fileName.length() > 0)
+			if (fileName.exists() && fileName.length() > 0) {
 				throw new IllegalStateException("PersistentMap file already exists:" + fileName);
+			}
 			buf = new BigByteBuffer(fileName);
 			this.indexSize = indexSize;
 			buf.putInt(VERSION);
@@ -62,14 +108,19 @@ public class PersistentBufferMap implements Map<ByteBuffer, ByteBuffer>, Closeab
 		}
 	}
 
+	public <K, V> CloseableMap<K, V> adapt(Function<K, ByteBuffer> fromKey, Function<ByteBuffer, K> toKey,
+			Function<V, ByteBuffer> fromValue, Function<ByteBuffer, V> toValue) {
+		return new BufferMapAdapter<K, V>(this, fromKey, toKey, fromValue, toValue);
+	}
+
 	private int bucket(ByteBuffer key) {
-		int h = 1;
+		int hash = 1;
 		// don't sample more than SAMPLES
 		int step = key.limit() > SAMPLES ? key.limit() / SAMPLES : 1;
 		for (int i = key.limit() - 1; i >= 0; i = i - step) {
-			h = 31 * h + (int) key.get(i);
+			hash = 31 * hash + key.get(i);
 		}
-		return (0x7FFFFFFF & h) % indexSize;
+		return (0x7FFFFFFF & hash) % indexSize;
 	}
 
 	@Override
@@ -96,27 +147,12 @@ public class PersistentBufferMap implements Map<ByteBuffer, ByteBuffer>, Closeab
 
 	@Override
 	public boolean containsValue(Object value) {
-		return stream().anyMatch(e -> e.getValue().equals(value));
+		return stream().anyMatch(entry -> entry.getValue().equals(value));
 	}
 
 	@Override
 	public Set<java.util.Map.Entry<ByteBuffer, ByteBuffer>> entrySet() {
 		return stream().collect(Collectors.toSet());
-	}
-
-	public Stream<java.util.Map.Entry<ByteBuffer, ByteBuffer>> stream() {
-		return IntStream.range(0, indexSize).sequential().mapToObj(i -> {
-			Stream.Builder<java.util.Map.Entry<ByteBuffer, ByteBuffer>> sb = Stream.builder();
-			long offset = indexPointer + Long.BYTES * i;
-			buf.position(offset);
-			offset = buf.getLong();
-			while (offset > 0) {
-				buf.position(offset);
-				sb.add(new AbstractMap.SimpleEntry<ByteBuffer, ByteBuffer>(buf.getBuffer(), buf.getBuffer()));
-				offset = buf.getLong();
-			}
-			return sb.build();
-		}).flatMap(x -> x);
 	}
 
 	@Override
@@ -252,6 +288,21 @@ public class PersistentBufferMap implements Map<ByteBuffer, ByteBuffer>, Closeab
 		}
 	}
 
+	public Stream<java.util.Map.Entry<ByteBuffer, ByteBuffer>> stream() {
+		return IntStream.range(0, indexSize).sequential().mapToObj(i -> {
+			Stream.Builder<java.util.Map.Entry<ByteBuffer, ByteBuffer>> sb = Stream.builder();
+			long offset = indexPointer + Long.BYTES * i;
+			buf.position(offset);
+			offset = buf.getLong();
+			while (offset > 0) {
+				buf.position(offset);
+				sb.add(new AbstractMap.SimpleEntry<ByteBuffer, ByteBuffer>(buf.getBuffer(), buf.getBuffer()));
+				offset = buf.getLong();
+			}
+			return sb.build();
+		}).flatMap(x -> x);
+	}
+
 	@Override
 	public String toString() {
 		return entrySet().toString();
@@ -259,57 +310,6 @@ public class PersistentBufferMap implements Map<ByteBuffer, ByteBuffer>, Closeab
 
 	@Override
 	public Collection<ByteBuffer> values() {
-		return stream().map(x -> x.getValue()).collect(Collectors.toList());
-	}
-
-	public <K, V> CloseableMap<K, V> adapt(Function<K, ByteBuffer> fromKey, Function<ByteBuffer, K> toKey,
-			Function<V, ByteBuffer> fromValue, Function<ByteBuffer, V> toValue) {
-		return new BufferMapAdapter<K, V>(this, fromKey, toKey, fromValue, toValue);
-	}
-
-	static public class StringMap extends BufferMapAdapter<String, String> {
-		private StringMap(Map<ByteBuffer, ByteBuffer> map) {
-			super(map, s -> {
-
-				ByteBuffer bb = ByteBuffer.allocate(s.length() * 2);
-				bb.asCharBuffer().append(s);
-				return bb;
-			} , b -> b == null ? null : b.asCharBuffer().toString(), s -> {
-				ByteBuffer bb = ByteBuffer.allocate(s.length() * 2);
-				bb.asCharBuffer().append(s);
-				return bb;
-			} , b -> b == null ? null : b.asCharBuffer().toString());
-
-		}
-
-		public static StringMap create(Map<ByteBuffer, ByteBuffer> map) {
-			return new StringMap(map);
-		}
-	}
-
-	static public class GsonMap<K, V> extends BufferMapAdapter<K, V> {
-		private GsonMap(Map<ByteBuffer, ByteBuffer> map, Class<K> keyClass, Class<V> valueClass) {
-			this(new Gson(), map, keyClass, valueClass);
-		}
-
-		private GsonMap(Gson g, Map<ByteBuffer, ByteBuffer> map, Class<K> keyClass, Class<V> valueClass) {
-			super(map, o -> {
-				String s = g.toJson(o);
-				ByteBuffer bb = ByteBuffer.allocate(s.length() * 2);
-				bb.asCharBuffer().append(s);
-				return bb;
-			} , b -> b == null ? null : g.fromJson(b.asCharBuffer().toString(), keyClass), o -> {
-				String s = g.toJson(o);
-				ByteBuffer bb = ByteBuffer.allocate(s.length() * 2);
-				bb.asCharBuffer().append(s);
-				return bb;
-			} , b -> b == null ? null : g.fromJson(b.asCharBuffer().toString(), valueClass));
-		}
-
-		public static <K, V> GsonMap<K, V> create(Map<ByteBuffer, ByteBuffer> map, Class<K> keyClass,
-				Class<V> valueClass) {
-			// TODO Auto-generated method stub
-			return new GsonMap<K, V>(map, keyClass, valueClass);
-		}
+		return stream().map(entry -> entry.getValue()).collect(Collectors.toList());
 	}
 }

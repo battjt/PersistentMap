@@ -28,10 +28,12 @@ public class PersistentBufferMapTest {
 	public void simple() throws Exception {
 		File f = File.createTempFile("test.", ".mapdb");
 		try (StringMap map = StringMap.create(new PersistentBufferMap(f, 3))) {
+			map.put("four", "apple");
+			map.put("four", "grape");
+			map.put("four", "mellon");
 			map.put("one", "red");
 			map.put("two", "blue");
 			map.put("three", "green");
-			map.put("four", "mellon");
 
 			// verify content
 			assertEquals("red", map.get("one"));
@@ -73,7 +75,7 @@ public class PersistentBufferMapTest {
 			assertEquals("Lorem Ipsum", map.get(LOREM_IPSUM));
 			assertNull(map.get(LOREM_IPSUM + "a"));
 			assertEquals("Lorem Ipsum", map.remove(LOREM_IPSUM));
-			assertNull(map.get(LOREM_IPSUM));
+			Assert.assertFalse(map.containsKey(LOREM_IPSUM));
 		}
 		try (StringMap map = StringMap.create(new PersistentBufferMap(f, -1))) {
 			assertNull(map.get("four"));
@@ -116,6 +118,8 @@ public class PersistentBufferMapTest {
 	public void lotsaObjects() throws Exception {
 		File f = File.createTempFile("test.", ".mapdb");
 		int count = (int) Files.lines(Paths.get("/usr/share/dict/words")).count();
+		System.err.println("words found:" + count);
+
 		try (GsonMap<String, Person> map = GsonMap.create(new PersistentBufferMap(f, count), String.class,
 				Person.class)) {
 			Files.lines(Paths.get("/usr/share/dict/words")).forEach(w -> map.put(w, new Person(w, w.length())));
@@ -123,6 +127,12 @@ public class PersistentBufferMapTest {
 		try (GsonMap<String, Person> map = GsonMap.create(new PersistentBufferMap(f, -1), String.class, Person.class)) {
 			assertEquals(3, map.get("cat").age);
 			assertEquals(5, map.get("money").age);
+			Assert.assertTrue(map.size() == count);
+			map.remove("money");
+			Assert.assertTrue(map.size() == count - 1);
+		}
+		try (GsonMap<String, Person> map = GsonMap.create(new PersistentBufferMap(f, -1), String.class, Person.class)) {
+			Assert.assertTrue(map.size() == count - 1);
 		}
 	}
 }

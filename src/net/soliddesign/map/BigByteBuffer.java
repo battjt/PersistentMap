@@ -29,8 +29,9 @@ public class BigByteBuffer implements AutoCloseable {
 		file = new RandomAccessFile(fileName, "rw");
 	}
 
-	public void putInt(int value) {
-		getBuffer(Integer.BYTES).putInt(value);
+	@Override
+	public void close() throws IOException {
+		file.close();
 	}
 
 	public ByteBuffer getBuffer() {
@@ -44,8 +45,9 @@ public class BigByteBuffer implements AutoCloseable {
 				// System.err.println("resize to " + newLength+1);
 				file.seek(newLength);
 				file.write(0);
-				if (!buffers.isEmpty())
+				if (!buffers.isEmpty()) {
 					buffers.remove(buffers.size() - 1);
+				}
 			}
 		} catch (IOException e) {
 			throw new RuntimeException("Failed to resize.", e);
@@ -72,16 +74,20 @@ public class BigByteBuffer implements AutoCloseable {
 		return slice;
 	}
 
-	public long position() {
-		return position;
-	}
-
-	public void skip() {
-		position(position + getInt() + Integer.BYTES);
+	public int getInt() {
+		return getBuffer(Integer.BYTES).getInt();
 	}
 
 	public long getLong() {
 		return getBuffer(Long.BYTES).getLong();
+	}
+
+	public long length() {
+		return length;
+	}
+
+	public long position() {
+		return position;
 	}
 
 	public void position(long p) {
@@ -90,23 +96,19 @@ public class BigByteBuffer implements AutoCloseable {
 
 	public void putBuffer(ByteBuffer b) {
 		getBuffer(Integer.BYTES + b.limit()).putInt(b.limit()).put(b);
+		b.rewind();
+	}
+
+	public void putInt(int value) {
+		getBuffer(Integer.BYTES).putInt(value);
 	}
 
 	public void putLong(long value) {
 		getBuffer(Long.BYTES).putLong(value);
 	}
 
-	public long length() {
-		return length;
-	}
-
-	public int getInt() {
-		return getBuffer(Integer.BYTES).getInt();
-	}
-
-	@Override
-	public void close() throws IOException {
-		file.close();
+	public void skip() {
+		position(position + getInt() + Integer.BYTES);
 	}
 
 }
