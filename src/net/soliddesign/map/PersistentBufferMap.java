@@ -8,63 +8,40 @@ import java.nio.ByteBuffer;
 import java.util.AbstractMap;
 import java.util.Collection;
 import java.util.Map;
+import java.util.Optional;
 import java.util.Set;
 import java.util.function.Function;
 import java.util.stream.Collectors;
 import java.util.stream.IntStream;
 import java.util.stream.Stream;
 
-import com.google.gson.Gson;
-
 public class PersistentBufferMap implements Map<ByteBuffer, ByteBuffer>, Closeable {
-
-	static public class GsonMap<K, V> extends BufferMapAdapter<K, V> {
-		public static <K, V> GsonMap<K, V> create(Map<ByteBuffer, ByteBuffer> map, Class<K> keyClass,
-				Class<V> valueClass) {
-			return new GsonMap<K, V>(map, keyClass, valueClass);
-		}
-
-		private GsonMap(Gson gson, Map<ByteBuffer, ByteBuffer> map, Class<K> keyClass, Class<V> valueClass) {
-			super(map, o -> {
-				String s = gson.toJson(o);
-				ByteBuffer bb = ByteBuffer.allocate(s.length() * 2);
-				bb.asCharBuffer().append(s);
-				return bb;
-			} , b -> b == null ? null : gson.fromJson(b.asCharBuffer().toString(), keyClass), o -> {
-				String s = gson.toJson(o);
-				ByteBuffer bb = ByteBuffer.allocate(s.length() * 2);
-				bb.asCharBuffer().append(s);
-				return bb;
-			} , b -> b == null ? null : gson.fromJson(b.asCharBuffer().toString(), valueClass));
-		}
-
-		private GsonMap(Map<ByteBuffer, ByteBuffer> map, Class<K> keyClass, Class<V> valueClass) {
-			this(new Gson(), map, keyClass, valueClass);
-		}
-	}
-
-	static public class StringMap extends BufferMapAdapter<String, String> {
-		public static StringMap create(Map<ByteBuffer, ByteBuffer> map) {
-			return new StringMap(map);
-		}
-
-		private StringMap(Map<ByteBuffer, ByteBuffer> map) {
-			super(map, s -> {
-				ByteBuffer bb = ByteBuffer.allocate(s.length() * 2);
-				bb.asCharBuffer().append(s);
-				return bb;
-			} , b -> b == null ? null : b.asCharBuffer().toString(), s -> {
-				ByteBuffer bb = ByteBuffer.allocate(s.length() * 2);
-				bb.asCharBuffer().append(s);
-				return bb;
-			} , b -> b == null ? null : b.asCharBuffer().toString());
-		}
-	}
 
 	// so that we can evolve the file format
 	static final private int VERSION = 1;
 	// maximum number of bytes to sample from key for hash value.
 	private static final int SAMPLES = 128;
+
+	public static void update(File file) throws IOException {
+		File temp = File.createTempFile("db", ".map", file.getParentFile());
+		try (PersistentBufferMap orig = new PersistentBufferMap(file, -1);
+				PersistentBufferMap tempMap = new PersistentBufferMap(temp, orig.size())) {
+			tempMap.putAll(orig);
+		}
+		File backup = new File(file.getName() + ".bak");
+		if (file.renameTo(backup)) {
+			if (temp.renameTo(file)) {
+				backup.delete();
+			} else {
+				temp.delete();
+				backup.renameTo(file);
+				throw new IOException("Restored backup.  Failed to rename new db.");
+			}
+		} else {
+			temp.delete();
+			throw new IOException("Failed to rename original file out of the way.");
+		}
+	}
 
 	final private BigByteBuffer buf;
 
@@ -108,9 +85,9 @@ public class PersistentBufferMap implements Map<ByteBuffer, ByteBuffer>, Closeab
 		}
 	}
 
-	public <K, V> CloseableMap<K, V> adapt(Function<K, ByteBuffer> fromKey, Function<ByteBuffer, K> toKey,
-			Function<V, ByteBuffer> fromValue, Function<ByteBuffer, V> toValue) {
-		return new BufferMapAdapter<K, V>(this, fromKey, toKey, fromValue, toValue);
+	public <K, V> CloseableMap<K, V> adapt(Function<K, ByteBuffer> fromKey, Function<ByteBuffer, Optional<K>> toKey,
+			Function<V, ByteBuffer> fromValue, Function<ByteBuffer, Optional<V>> toValue) {
+		return new BufferMapAdapter<>(this, fromKey, toKey, fromValue, toValue);
 	}
 
 	private int bucket(ByteBuffer key) {
@@ -296,7 +273,7 @@ public class PersistentBufferMap implements Map<ByteBuffer, ByteBuffer>, Closeab
 			offset = buf.getLong();
 			while (offset > 0) {
 				buf.position(offset);
-				sb.add(new AbstractMap.SimpleEntry<ByteBuffer, ByteBuffer>(buf.getBuffer(), buf.getBuffer()));
+				sb.add(new AbstractMap.SimpleEntry<>(buf.getBuffer(), buf.getBuffer()));
 				offset = buf.getLong();
 			}
 			return sb.build();

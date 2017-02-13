@@ -16,7 +16,7 @@ public class BigByteBuffer implements AutoCloseable {
 	/** length of data, not length of file */
 	private long length;
 
-	/** underlying file */
+	/** underlying file or somethign */
 	final private RandomAccessFile file;
 
 	/**
