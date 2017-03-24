@@ -1,7 +1,6 @@
 package net.soliddesign.map;
 
 import java.io.File;
-import java.io.FileNotFoundException;
 import java.io.IOException;
 import java.io.RandomAccessFile;
 import java.nio.ByteBuffer;
@@ -16,6 +15,9 @@ public class BigByteBuffer implements AutoCloseable {
 	/** length of data, not length of file */
 	private long length;
 
+	/** length of file */
+	private long fileLength;
+
 	/** underlying file or somethign */
 	final private RandomAccessFile file;
 
@@ -23,10 +25,11 @@ public class BigByteBuffer implements AutoCloseable {
 	 * Each map is 2G, overlapping mapped at every 1G, so the largest object can
 	 * be 1G
 	 */
-	private ArrayList<MappedByteBuffer> buffers = new ArrayList<MappedByteBuffer>();
+	private ArrayList<MappedByteBuffer> buffers = new ArrayList<>();
 
-	public BigByteBuffer(File fileName) throws FileNotFoundException {
+	public BigByteBuffer(File fileName) throws IOException {
 		file = new RandomAccessFile(fileName, "rw");
+		fileLength = file.length();
 	}
 
 	@Override
@@ -40,10 +43,10 @@ public class BigByteBuffer implements AutoCloseable {
 
 	public ByteBuffer getBuffer(int size) {
 		try {
-			if (position + size > file.length()) {
-				long newLength = (Long.highestOneBit(position + size) << 1) - 1;
+			if (position + size > fileLength) {
+				fileLength = (Long.highestOneBit(position + size) << 1) - 1;
 				// System.err.println("resize to " + newLength+1);
-				file.seek(newLength);
+				file.seek(fileLength);
 				file.write(0);
 				if (!buffers.isEmpty()) {
 					buffers.remove(buffers.size() - 1);
@@ -57,7 +60,7 @@ public class BigByteBuffer implements AutoCloseable {
 		if (buf == null) {
 			try {
 				int start = offset << 30;
-				buf = file.getChannel().map(MapMode.READ_WRITE, start, Math.min(file.length() - start, 0x40000000));
+				buf = file.getChannel().map(MapMode.READ_WRITE, start, Math.min(fileLength - start, 0x40000000));
 				while (buffers.size() <= offset) {
 					buffers.add(null);
 				}

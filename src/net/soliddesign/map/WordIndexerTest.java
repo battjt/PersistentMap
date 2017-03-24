@@ -4,7 +4,6 @@ import java.io.BufferedReader;
 import java.io.File;
 import java.io.FileReader;
 import java.nio.ByteBuffer;
-import java.util.Optional;
 import java.util.stream.Stream;
 
 public class WordIndexerTest {
@@ -20,14 +19,8 @@ public class WordIndexerTest {
 		new File("words.db").delete();
 		try (BufferedReader in = new BufferedReader(new FileReader("/home/joe/text"));
 				PersistentBufferMap bm = new PersistentBufferMap(new File("words.db"), 100000)) {
-			CloseableMap<String, Integer> map = bm.adapt(s -> {
-				ByteBuffer bb = ByteBuffer.allocate(s.length() * 2);
-				bb.asCharBuffer().put(s);
-				return bb;
-			},
-					k -> Optional.ofNullable(k).map(o -> o.asCharBuffer().toString()),
-					i -> ByteBuffer.allocate(Integer.BYTES).putInt(i),
-					b -> Optional.ofNullable(b).map(o -> o.getInt()));
+			CloseableMap<String, Integer> map = new BufferMapAdapter<>(bm, "words", BBBroker.stringBroker,
+					BBBroker.intBroker);
 			Stream<String> m = in.lines()
 					.flatMap(line -> Stream.of(line.split("\\W")));
 			m.forEach(w -> {

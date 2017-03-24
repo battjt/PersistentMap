@@ -8,9 +8,7 @@ import java.nio.ByteBuffer;
 import java.util.AbstractMap;
 import java.util.Collection;
 import java.util.Map;
-import java.util.Optional;
 import java.util.Set;
-import java.util.function.Function;
 import java.util.stream.Collectors;
 import java.util.stream.IntStream;
 import java.util.stream.Stream;
@@ -83,11 +81,6 @@ public class PersistentBufferMap implements Map<ByteBuffer, ByteBuffer>, Closeab
 			indexPointer = buf.position();
 			clear();
 		}
-	}
-
-	public <K, V> CloseableMap<K, V> adapt(Function<K, ByteBuffer> fromKey, Function<ByteBuffer, Optional<K>> toKey,
-			Function<V, ByteBuffer> fromValue, Function<ByteBuffer, Optional<V>> toValue) {
-		return new BufferMapAdapter<>(this, fromKey, toKey, fromValue, toValue);
 	}
 
 	private int bucket(ByteBuffer key) {
