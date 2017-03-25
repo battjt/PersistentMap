@@ -50,10 +50,19 @@ public class BufferMapAdapter<K, V> implements CloseableMap<K, V> {
 	@Override
 	public Set<java.util.Map.Entry<K, V>> entrySet() {
 		return map.entrySet().stream()
-				.map(entry -> new AbstractMap.SimpleEntry<>(keyBroker.fromBB(entry.getKey()),
-						valueBroker.fromBB(entry.getValue())))
-				.filter(e -> e.getKey().isPresent() && e.getValue().isPresent())
-				.map(e -> new AbstractMap.SimpleEntry<>(e.getKey().get(), e.getValue().get()))
+				.map(entry -> {
+					Optional<K> key = keyBroker.fromBB(entry.getKey());
+					if (key.isPresent()) {
+						Optional<V> value = valueBroker.fromBB(entry.getValue());
+						if (value.isPresent()) {
+							return new AbstractMap.SimpleEntry<>(key.get(), value.get());
+						} else {
+							System.err.println("unknown value?! " + entry.getValue());
+						}
+					}
+					return (Map.Entry<K, V>) null;
+				})
+				.filter(e -> e != null)
 				.collect(Collectors.toSet());
 	}
 
@@ -65,7 +74,9 @@ public class BufferMapAdapter<K, V> implements CloseableMap<K, V> {
 	@SuppressWarnings("unchecked")
 	@Override
 	public V get(Object key) {
-		return Optional.ofNullable(map.get(keyBroker.toBB((K) key))).flatMap(bb -> valueBroker.fromBB(bb)).orElse(null);
+		return Optional.ofNullable(map.get(keyBroker.toBB((K) key)))
+				.flatMap(bb -> valueBroker.fromBB(bb))
+				.orElse(null);
 	}
 
 	@Override

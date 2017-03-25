@@ -10,24 +10,24 @@ public interface BBBroker<T> {
 
 		@Override
 		public Optional<Integer> fromBB(ByteBuffer bb) {
-			return bb.remaining() > Integer.SIZE ? Optional.of(bb.getInt()) : Optional.empty();
+			return bb.remaining() >= Integer.BYTES ? Optional.of(bb.getInt()) : Optional.empty();
 		}
 
 		@Override
 		public ByteBuffer toBB(Integer v) {
-			return (ByteBuffer) ByteBuffer.allocate(Integer.SIZE).putInt(v).flip();
+			return (ByteBuffer) ByteBuffer.allocate(Integer.BYTES).putInt(v).flip();
 		}
 	};
 	static final public BBBroker<Long> longBroker = new BBBroker<Long>() {
 
 		@Override
 		public Optional<Long> fromBB(ByteBuffer bb) {
-			return bb.remaining() > Long.SIZE ? Optional.of(bb.getLong()) : Optional.empty();
+			return bb.remaining() >= Long.BYTES ? Optional.of(bb.getLong()) : Optional.empty();
 		}
 
 		@Override
 		public ByteBuffer toBB(Long v) {
-			return (ByteBuffer) ByteBuffer.allocate(Long.SIZE).putLong(v).flip();
+			return (ByteBuffer) ByteBuffer.allocate(Long.BYTES).putLong(v).flip();
 		}
 	};
 
@@ -43,12 +43,25 @@ public interface BBBroker<T> {
 
 		@Override
 		public ByteBuffer toBB(String s) {
-			return (ByteBuffer) ByteBuffer.allocate(s.length() * 2 + 2 + Integer.SIZE)
+			return (ByteBuffer) ByteBuffer.allocate(s.length() * 2 + 2 + Integer.BYTES)
 					.putInt(s.length() * 2)
 					.put((ByteBuffer) Charset.forName("UTF-16").encode(s).position(2))
 					.flip();
 		}
 	};
+
+	public static ByteBuffer toBB(ByteBuffer... buffers) {
+		int size = 0;
+		for (ByteBuffer bb : buffers) {
+			size += bb.remaining();
+		}
+		ByteBuffer res = ByteBuffer.allocate(size);
+		for (ByteBuffer bb : buffers) {
+			res.put(bb);
+		}
+		res.flip();
+		return res;
+	}
 
 	public Optional<T> fromBB(ByteBuffer bb);
 

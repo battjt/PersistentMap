@@ -23,14 +23,14 @@ public class MagicBroker<T> implements BBBroker<T> {
 			bb.position(bb.position() + length);
 			return broker.fromBB(bb);
 		}
-		return null;
+		return Optional.empty();
 	}
 
 	@Override
 	public ByteBuffer toBB(T v) {
 		ByteBuffer bb = broker.toBB(v);
 		magic.rewind();
-		return (ByteBuffer) ByteBuffer.allocate(bb.limit() + magic.limit() + Integer.SIZE).putInt(magic.limit())
+		return (ByteBuffer) ByteBuffer.allocate(bb.limit() + magic.limit() + Integer.BYTES).putInt(magic.limit())
 				.put(magic).put(bb).flip();
 	}
 
