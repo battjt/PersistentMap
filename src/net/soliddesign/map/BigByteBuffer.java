@@ -18,7 +18,7 @@ public class BigByteBuffer implements AutoCloseable {
 	/** length of file */
 	private long fileLength;
 
-	/** underlying file or somethign */
+	/** underlying file or something */
 	final private RandomAccessFile file;
 
 	/**
@@ -34,6 +34,9 @@ public class BigByteBuffer implements AutoCloseable {
 
 	@Override
 	public void close() throws IOException {
+		for (MappedByteBuffer bb : buffers) {
+			bb.force();
+		}
 		file.close();
 	}
 
@@ -42,13 +45,15 @@ public class BigByteBuffer implements AutoCloseable {
 	}
 
 	public ByteBuffer getBuffer(int size) {
+		// System.err.format("getBuffer(%x) at %x\n", size, position);
 		try {
 			if (position + size > fileLength) {
 				fileLength = (Long.highestOneBit(position + size) << 1) - 1;
-				// System.err.println("resize to " + newLength+1);
+				System.err.format("resize: %x getBuffer(%x) at %x\n", fileLength, size, position);
 				file.seek(fileLength);
 				file.write(0);
 				if (!buffers.isEmpty()) {
+					buffers.get(buffers.size() - 1).force();
 					buffers.remove(buffers.size() - 1);
 				}
 			}
@@ -98,8 +103,9 @@ public class BigByteBuffer implements AutoCloseable {
 	}
 
 	public void putBuffer(ByteBuffer b) {
+		b.mark();
 		getBuffer(Integer.BYTES + b.limit()).putInt(b.limit()).put(b);
-		b.rewind();
+		b.reset();
 	}
 
 	public void putInt(int value) {
