@@ -85,7 +85,9 @@ public class PersistentBufferMapTest {
 	public void simple() throws Exception {
 		File f = File.createTempFile("test.", ".mapdb");
 		try {
-			try (StringMap map = new StringMap(new PersistentBufferMap(f, 3), "simple")) {
+			PersistentBufferMap map2 = new PersistentBufferMap(f, 3);
+			// Map<ByteBuffer, ByteBuffer> map2 = new HashMap<>();
+			try (StringMap map = new StringMap(map2, "simple")) {
 				map.put("four", "apple");
 				map.put("four", "grape");
 				map.put("four", "mellon");
@@ -93,6 +95,7 @@ public class PersistentBufferMapTest {
 				map.put("two", "blue");
 				map.put("three", "green");
 				// verify content
+				assertEquals("red", map.get("one"));
 				assertEquals("red", map.get("one"));
 				assertEquals("blue", map.get("two"));
 				assertEquals("green", map.get("three"));

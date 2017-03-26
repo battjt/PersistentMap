@@ -11,6 +11,7 @@ public class MagicBroker<T> implements BBBroker<T> {
 
 	public MagicBroker(String magic, BBBroker<T> broker) {
 		this.broker = broker;
+		// FIXME -2, -1?
 		this.magic = ((ByteBuffer) Charset.forName("UTF-16").encode(magic).position(2)).slice();
 	}
 

@@ -9,6 +9,7 @@ import java.util.Optional;
 import java.util.Set;
 import java.util.function.Function;
 import java.util.stream.Collectors;
+import java.util.stream.Stream;
 
 public class BufferMapAdapter<K, V> implements CloseableMap<K, V> {
 
@@ -49,11 +50,15 @@ public class BufferMapAdapter<K, V> implements CloseableMap<K, V> {
 
 	@Override
 	public Set<java.util.Map.Entry<K, V>> entrySet() {
+		return entryStream().collect(Collectors.toSet());
+	}
+
+	private Stream<java.util.Map.Entry<K, V>> entryStream() {
 		return map.entrySet().stream()
 				.map(entry -> {
-					Optional<K> key = keyBroker.fromBB(entry.getKey());
+					Optional<K> key = rewind(entry.getKey(), keyBroker.fromBB(entry.getKey()));
 					if (key.isPresent()) {
-						Optional<V> value = valueBroker.fromBB(entry.getValue());
+						Optional<V> value = rewind(entry.getValue(), valueBroker.fromBB(entry.getValue()));
 						if (value.isPresent()) {
 							return new AbstractMap.SimpleEntry<>(key.get(), value.get());
 						} else {
@@ -62,8 +67,7 @@ public class BufferMapAdapter<K, V> implements CloseableMap<K, V> {
 					}
 					return (Map.Entry<K, V>) null;
 				})
-				.filter(e -> e != null)
-				.collect(Collectors.toSet());
+				.filter(e -> e != null);
 	}
 
 	@Override
@@ -75,7 +79,7 @@ public class BufferMapAdapter<K, V> implements CloseableMap<K, V> {
 	@Override
 	public V get(Object key) {
 		return Optional.ofNullable(map.get(keyBroker.toBB((K) key)))
-				.flatMap(bb -> valueBroker.fromBB(bb))
+				.flatMap(bb -> rewind(bb, valueBroker.fromBB(bb)))
 				.orElse(null);
 	}
 
@@ -92,7 +96,7 @@ public class BufferMapAdapter<K, V> implements CloseableMap<K, V> {
 	@Override
 	public Set<K> keySet() {
 		return map.keySet().stream()
-				.map(keyBuffer -> keyBroker.fromBB(keyBuffer))
+				.map(keyBuffer -> rewind(keyBuffer, keyBroker.fromBB(keyBuffer)))
 				.filter(o -> o.isPresent())
 				.map(o -> o.get())
 				.collect(Collectors.toSet());
@@ -102,7 +106,8 @@ public class BufferMapAdapter<K, V> implements CloseableMap<K, V> {
 	public V put(K key, V value) {
 		ByteBuffer oldBuffer = map.put(keyBroker.toBB(key), valueBroker.toBB(value));
 		return oldBuffer == null ? null
-				: valueBroker.fromBB(oldBuffer).orElseThrow(() -> new IllegalStateException("Key collision"));
+				: rewind(oldBuffer, valueBroker.fromBB(oldBuffer))
+						.orElseThrow(() -> new IllegalStateException("Key collision"));
 	}
 
 	@Override
@@ -116,7 +121,13 @@ public class BufferMapAdapter<K, V> implements CloseableMap<K, V> {
 		@SuppressWarnings("unchecked")
 		ByteBuffer oldBuffer = map.remove(keyBroker.toBB((K) key));
 		return oldBuffer == null ? null
-				: valueBroker.fromBB(oldBuffer).orElseThrow(() -> new IllegalStateException("Key collision"));
+				: rewind(oldBuffer, valueBroker.fromBB(oldBuffer))
+						.orElseThrow(() -> new IllegalStateException("Key collision"));
+	}
+
+	private <T> T rewind(ByteBuffer bb, T value) {
+		bb.rewind();
+		return value;
 	}
 
 	@Override
@@ -153,7 +164,7 @@ public class BufferMapAdapter<K, V> implements CloseableMap<K, V> {
 
 	@Override
 	public Collection<V> values() {
-		return map.values().stream().map(valueBuffer -> valueBroker.fromBB(valueBuffer)).filter(o -> o.isPresent())
-				.map(o -> o.get()).collect(Collectors.toSet());
+		return entryStream().map(o -> o.getValue())
+				.collect(Collectors.toSet());
 	}
 }

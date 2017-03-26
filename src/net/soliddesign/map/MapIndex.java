@@ -52,13 +52,12 @@ public class MapIndex<T, K> {
 		T value;
 
 		void dump(String prefix) {
-			System.err.println(prefix + value);
-			prefix += "  ";
+			System.err.println(prefix + id + " : " + value);
 			if (left != 0) {
-				trees.get(left).dump(prefix);
+				trees.get(left).dump(prefix + " ");
 			}
 			if (right != 0) {
-				trees.get(right).dump(prefix);
+				trees.get(right).dump(prefix + " ");
 			}
 		}
 
@@ -142,9 +141,10 @@ public class MapIndex<T, K> {
 			MapIndex<T, K>.TreeNode old = trees.get(right);
 			right = old.left;
 			old.left = old.id;
+			// swap IDs so that outside references are correct
 			old.id = id;
-
 			id = old.left;
+
 			trees.put(id, this);
 			trees.put(old.id, old);
 		}
@@ -153,10 +153,12 @@ public class MapIndex<T, K> {
 		private void rotateRight() {
 			MapIndex<T, K>.TreeNode old = trees.get(left);
 			left = old.right;
-			old.right = id;
-			old.id = id;
+			old.right = old.id;
 
+			// swap IDs so that outside references are correct
+			old.id = id;
 			id = old.right;
+
 			trees.put(id, this);
 			trees.put(old.id, old);
 		}
@@ -171,8 +173,8 @@ public class MapIndex<T, K> {
 	 */
 	static private long newMapId(Map<Long, ?> map) {
 		long id;
-		// only positives. FIXME why?
-		while (map.containsKey(id = Math.abs(random.nextLong()))) {
+		while (map.containsKey(id = random.nextLong())) {
+			System.err.println("CRASH");
 			;
 		}
 		return id;
@@ -264,7 +266,7 @@ public class MapIndex<T, K> {
 
 	private TreeNode newTree(long left, long right, T value, long list) {
 		TreeNode tree = new TreeNode();
-		tree.id = newMapId(MapIndex.this.trees);
+		tree.id = newMapId(trees);
 		tree.left = left;
 		tree.right = right;
 		tree.value = value;

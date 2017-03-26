@@ -23,7 +23,6 @@ public class GsonBroker<T> implements BBBroker<T> {
 		String s = gson.get().toJson(v);
 		ByteBuffer bb = ByteBuffer.allocate(s.length() * 2);
 		bb.asCharBuffer().append(s);
-		bb.rewind();
 		return bb;
 	}
 
