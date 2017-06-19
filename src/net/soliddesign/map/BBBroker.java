@@ -10,7 +10,11 @@ public interface BBBroker<T> {
 
 		@Override
 		public Optional<Integer> fromBB(ByteBuffer bb) {
-			return bb.remaining() >= Integer.BYTES ? Optional.of(bb.getInt()) : Optional.empty();
+			if (bb.remaining() >= Integer.BYTES) {
+				return Optional.of(bb.getInt());
+			} else {
+				return Optional.empty();
+			}
 		}
 
 		@Override
@@ -22,7 +26,11 @@ public interface BBBroker<T> {
 
 		@Override
 		public Optional<Long> fromBB(ByteBuffer bb) {
-			return bb.remaining() >= Long.BYTES ? Optional.of(bb.getLong()) : Optional.empty();
+			if (bb.remaining() >= Long.BYTES) {
+				return Optional.of(bb.getLong());
+			} else {
+				return Optional.empty();
+			}
 		}
 
 		@Override
@@ -43,10 +51,9 @@ public interface BBBroker<T> {
 
 		@Override
 		public ByteBuffer toBB(String s) {
-			return (ByteBuffer) ByteBuffer.allocate(s.length() * 2 + 2 + Integer.BYTES)
-					.putInt(s.length() * 2)
-					.put((ByteBuffer) Charset.forName("UTF-16").encode(s).position(2))
-					.flip();
+			ByteBuffer ebuf = Charset.forName("UTF-16").encode(s);
+			return (ByteBuffer) ByteBuffer.allocate(ebuf.limit() + Integer.BYTES).putInt(ebuf.limit())
+					.put(ebuf).flip();
 		}
 	};
 

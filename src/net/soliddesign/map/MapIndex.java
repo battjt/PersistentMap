@@ -1,5 +1,7 @@
 package net.soliddesign.map;
 
+import java.io.ByteArrayOutputStream;
+import java.io.PrintStream;
 import java.nio.ByteBuffer;
 import java.util.Comparator;
 import java.util.Map;
@@ -16,7 +18,7 @@ import java.util.stream.Stream;
  */
 public class MapIndex<T, K> {
 	private class ListItem {
-		long id; // do we really want to store this in teh value also?
+		long id; // do we really want to store this in the value also?
 		long next;
 		K value;
 
@@ -39,44 +41,57 @@ public class MapIndex<T, K> {
 				}
 			}
 		}
+
+		@Override
+		public String toString() {
+			String str = id + ":" + value.toString();
+			if (next != 0) {
+				str += "," + items.get(next).toString();
+			}
+			return str;
+		}
 	}
 
 	/**
 	 * a tree mapping of value of T to list of K
 	 */
 	private class TreeNode {
-		long id; // do we really want to store this in teh value also?
+		long id; // do we really want to store this in the value also?
 		long left;
 		long list;
 		long right;
 		T value;
 
-		void dump(String prefix) {
-			System.err.println(prefix + id + " : " + value);
+		void dump(String prefix, PrintStream out) {
+			out.println(prefix + " ID:" + id + " v:" + value + " list:" + items.get(list));
 			if (left != 0) {
-				trees.get(left).dump(prefix + " ");
+				MapIndex<T, K>.TreeNode node = getNode(left);
+				node.dump(prefix + " L:" + left + " ", out);
 			}
 			if (right != 0) {
-				trees.get(right).dump(prefix + " ");
+				MapIndex<T, K>.TreeNode node = getNode(right);
+				node.dump(prefix + " R:" + right + " ", out);
 			}
 		}
 
 		// FIXME this should recurse on demand, not at call time.
 		public Stream<K> find(T min, T max) {
-			int cMin = comparator.compare(min, value);
-			int cMax = comparator.compare(value, max);
+			int cMin = min == null ? -1 : comparator.compare(min, value);
+			int cMax = max == null ? -1 : comparator.compare(value, max);
+			boolean useLeft = cMin < 0 && left != 0;
+			boolean useThis = cMin <= 0 && cMax <= 0;
+			boolean useRight = cMax < 0 && right != 0;
 
 			Stream<K> stream = Stream.empty();
-			if (cMin < 0 && left != 0) {
-				stream = trees.get(left).find(min, max);
+			if (useLeft) {
+				stream = getNode(left).find(min, max);
 			}
-			if (cMin <= 0 && cMax <= 0) {
+			if (useThis) {
 				stream = Stream.concat(stream, items.get(list).list());
 			}
-			if (cMax < 0 && right != 0) {
-				stream = Stream.concat(stream, trees.get(right).find(min, max));
+			if (useRight) {
+				stream = Stream.concat(stream, getNode(right).find(min, max));
 			}
-
 			return stream;
 		}
 
@@ -88,29 +103,29 @@ public class MapIndex<T, K> {
 			int c = comparator.compare(value, this.value);
 			if (c == 0) {
 				this.list = newList(list, key).id;
-				trees.put(id, this);
+				putNode(this);
 				return 0;
 			} else if (c > 0) {
 				if (right == 0) {
 					right = newTree(0, 0, value, newList(0, key).id).id;
-					trees.put(id, this);
+					putNode(this);
 					return 1;
 				} else {
-					double put = trees.get(right).put(value, key) / 2;
+					double put = getNode(right).put(value, key) / 2;
 					if (put > Math.random()) {
-						rotateLeft();
+						// rotateLeft();
 					}
 					return put;
 				}
 			} else {
 				if (left == 0) {
 					left = newTree(0, 0, value, newList(0, key).id).id;
-					trees.put(id, this);
+					putNode(this);
 					return 1;
 				} else {
-					double put = trees.get(left).put(value, key) / 2;
+					double put = getNode(left).put(value, key) / 2;
 					if (put > Math.random()) {
-						rotateRight();
+						// rotateRight();
 					}
 					return put;
 				}
@@ -124,34 +139,34 @@ public class MapIndex<T, K> {
 				ListItem item = items.get(list);
 				if (item.value.equals(k)) {
 					list = item.next;
-					trees.put(id, this);
+					putNode(this);
 					items.remove(item.id);
 				} else {
 					item.remove(k);
 				}
 			} else if (c < 0 && left != 0) {
-				trees.get(left).remove(v, k);
+				getNode(left).remove(v, k);
 			} else if (right != 0) {
-				trees.get(right).remove(v, k);
+				getNode(right).remove(v, k);
 			}
 		}
 
 		// FIXME, not atomic
 		private void rotateLeft() {
-			MapIndex<T, K>.TreeNode old = trees.get(right);
+			MapIndex<T, K>.TreeNode old = getNode(right);
 			right = old.left;
 			old.left = old.id;
 			// swap IDs so that outside references are correct
 			old.id = id;
 			id = old.left;
 
-			trees.put(id, this);
-			trees.put(old.id, old);
+			putNode(this);
+			putNode(old);
 		}
 
 		// FIXME, not atomic
 		private void rotateRight() {
-			MapIndex<T, K>.TreeNode old = trees.get(left);
+			MapIndex<T, K>.TreeNode old = getNode(left);
 			left = old.right;
 			old.right = old.id;
 
@@ -159,23 +174,31 @@ public class MapIndex<T, K> {
 			old.id = id;
 			id = old.right;
 
-			trees.put(id, this);
-			trees.put(old.id, old);
+			putNode(this);
+			putNode(old);
+		}
+
+		@Override
+		public String toString() {
+			ByteArrayOutputStream out = new ByteArrayOutputStream();
+			dump("", new PrintStream(out));
+			return out.toString();
 		}
 
 	}
 
 	static private Random random = new Random();
 
+	private static long id = 1;
+
 	/**
 	 * just guess until we find an unused ID. Should be fine since we are using
 	 * longs for ids
 	 */
 	static private long newMapId(Map<Long, ?> map) {
-		long id;
-		while (map.containsKey(id = random.nextLong())) {
-			System.err.println("CRASH");
-			;
+		// long id = 1 + Math.abs(random.nextLong());
+		while (map.containsKey(++id)) {
+			System.err.println("collision:" + id++);
 		}
 		return id;
 	}
@@ -246,13 +269,24 @@ public class MapIndex<T, K> {
 		});
 	}
 
-	public void dump() {
-		trees.get(0L).dump("");
+	public void dump(PrintStream out) {
+		MapIndex<T, K>.TreeNode node = trees.get(0L);
+		if (node != null) {
+			node.dump("", out);
+		}
 	}
 
 	public Stream<K> find(T min, T max) {
-		MapIndex<T, K>.TreeNode root = trees.get(0L);
+		MapIndex<T, K>.TreeNode root = getNode(0L);
 		return root == null ? Stream.empty() : root.find(min, max);
+	}
+
+	private MapIndex<T, K>.TreeNode getNode(long ind) {
+		MapIndex<T, K>.TreeNode node = trees.get(ind);
+		if (node == null) {
+			throw new NullPointerException("node missing:" + ind);
+		}
+		return node;
 	}
 
 	private ListItem newList(long next, K key) {
@@ -271,7 +305,7 @@ public class MapIndex<T, K> {
 		tree.right = right;
 		tree.value = value;
 		tree.list = list;
-		trees.put(tree.id, tree);
+		putNode(tree);
 		return tree;
 	}
 
@@ -281,14 +315,21 @@ public class MapIndex<T, K> {
 			root = new TreeNode();
 			root.list = newList(0, k).id;
 			root.value = v;
-			trees.put(0L, root);
+			putNode(root);
 		} else {
 			root.put(v, k);
 		}
 	}
 
+	private void putNode(MapIndex<T, K>.TreeNode node) {
+		MapIndex<T, K>.TreeNode oldNode = trees.put(node.id, node);
+		if (oldNode != null) {
+			// System.err.println("Replaced " + oldNode + " with " + node);
+		}
+	}
+
 	public void remove(T v, K k) {
-		MapIndex<T, K>.TreeNode root = trees.get(0L);
+		MapIndex<T, K>.TreeNode root = getNode(0L);
 		if (root != null) {
 			root.remove(v, k);
 		}
@@ -296,7 +337,9 @@ public class MapIndex<T, K> {
 
 	@Override
 	public String toString() {
-		return "trees:" + trees + "\nitems:" + items;
+		// ByteArrayOutputStream out = new ByteArrayOutputStream();
+		// dump(new PrintStream(out));
+		// return out.toString();
+		return "lists:" + items.toString() + "\ntrees:" + trees.toString();
 	}
-
 }

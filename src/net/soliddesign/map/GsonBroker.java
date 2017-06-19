@@ -1,6 +1,8 @@
 package net.soliddesign.map;
 
 import java.nio.ByteBuffer;
+import java.nio.CharBuffer;
+import java.nio.charset.Charset;
 import java.util.Optional;
 
 import com.google.gson.Gson;
@@ -14,16 +16,21 @@ public class GsonBroker<T> implements BBBroker<T> {
 	}
 
 	@Override
-	public Optional<T> fromBB(ByteBuffer bb) {
-		return Optional.ofNullable(bb).map(o -> gson.get().fromJson(o.asCharBuffer().toString(), cls));
+	public Optional<T> fromBB(ByteBuffer b) {
+		int len = b.getInt();
+		ByteBuffer b2 = (ByteBuffer) b.slice().limit(len);
+		b.position(b.position() + len);
+		Optional<CharBuffer> opt = Optional.of(Charset.forName("UTF-16").decode(b2));
+		return opt.map(o -> gson.get().fromJson(o.toString(), cls));
 	}
 
 	@Override
 	public ByteBuffer toBB(T v) {
 		String s = gson.get().toJson(v);
-		ByteBuffer bb = ByteBuffer.allocate(s.length() * 2);
-		bb.asCharBuffer().append(s);
-		return bb;
+		return (ByteBuffer) ByteBuffer.allocate(s.length() * 2 + 2 + Integer.BYTES)
+				.putInt(s.length() * 2)
+				.put((ByteBuffer) Charset.forName("UTF-16").encode(s).position(2))
+				.flip();
 	}
 
 }

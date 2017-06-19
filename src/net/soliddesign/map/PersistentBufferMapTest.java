@@ -11,6 +11,7 @@ import java.util.HashMap;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
+import java.util.Random;
 
 import org.junit.Assert;
 import org.junit.Test;
@@ -19,6 +20,29 @@ import com.google.gson.Gson;
 import com.google.gson.reflect.TypeToken;
 
 public class PersistentBufferMapTest {
+	static public class H {
+		public String str;
+
+		H(String s) {
+			str = s;
+		}
+
+		@Override
+		public boolean equals(Object o) {
+			return str.equals(o);
+		}
+
+		@Override
+		public int hashCode() {
+			return 5;
+		}
+
+		@Override
+		public String toString() {
+			return "H(" + str + ")";
+		}
+	}
+
 	public static class Person {
 		public final String name;
 
@@ -33,14 +57,38 @@ public class PersistentBufferMapTest {
 	private static final String LOREM_IPSUM = "Lorem ipsum dolor sit amet, consectetur adipiscing elit. Integer ultricies elementum lacinia. Nam euismod viverra ultrices. Sed fringilla, ipsum a volutpat aliquam, tortor leo tristique diam, in consequat purus neque vitae enim. Mauris et efficitur lorem. Duis in fringilla dui. In lacinia dictum nulla pharetra efficitur. Suspendisse ac lacus nulla. Aenean egestas, orci ac dictum semper, sapien ligula tincidunt tortor, sit amet ullamcorper leo orci eu libero. Quisque in aliquet diam. Praesent aliquam nullam.";
 
 	@Test
+	public void bucketTest() throws Exception {
+		File f = File.createTempFile("test.", ".mapdb");
+		try (PersistentBufferMap pers = new PersistentBufferMap(f, 7)) {
+			BufferMapAdapter<Long, Long> longMap = new BufferMapAdapter<>(new PersistentBufferMap(f, -1), null,
+					BBBroker.longBroker,
+					BBBroker.longBroker);
+			Random rand = new Random();
+			for (int i = 0; i < 100; i++) {
+				long id = 0;
+				while (longMap.containsKey(id)) {
+					id = rand.nextLong();
+				}
+				Assert.assertEquals(i, pers.size());
+				// Assert.assertEquals(i, pers.keySet().size());
+				// Assert.assertEquals(i, pers.values().size());
+				longMap.put(id, -id);
+			}
+			System.err.println(
+					new BufferMapAdapter<>(new PersistentBufferMap(f, -1), null, BBBroker.longBroker,
+							BBBroker.longBroker));
+		}
+	}
+
+	@Test
 	public void gsonObjects() throws Exception {
 		File f = File.createTempFile("test.", ".mapdb");
 		try {
-			try (GsonMap<String, Person> map = new GsonMap<>(new PersistentBufferMap(f, 5), "gson",
+			try (GsonMap<String, Person> map = new GsonMap<>(new PersistentBufferMap(f, 5), "gsonObjects",
 					String.class, Person.class)) {
 				map.put("Joe", new Person("Joseph", 44));
 			}
-			try (GsonMap<String, Person> map = new GsonMap<>(new PersistentBufferMap(f, -1), "gson",
+			try (GsonMap<String, Person> map = new GsonMap<>(new PersistentBufferMap(f, -1), "gsonObjects",
 					String.class, Person.class)) {
 				assertEquals(44, map.get("Joe").age);
 				assertEquals("Joseph", map.get("Joe").name);
@@ -62,7 +110,7 @@ public class PersistentBufferMapTest {
 		int count = (int) Files.lines(Paths.get("/usr/share/dict/words")).count();
 		System.err.println("words found:" + count);
 		long start = System.currentTimeMillis();
-		try (GsonMap<String, Person> map = new GsonMap<>(new PersistentBufferMap(f, count / 4), "words", String.class,
+		try (GsonMap<String, Person> map = new GsonMap<>(new PersistentBufferMap(f, count), "words", String.class,
 				Person.class)) {
 			Files.lines(Paths.get("/usr/share/dict/words")).forEach(w -> map.put(w, new Person(w, w.length())));
 		}
@@ -89,8 +137,11 @@ public class PersistentBufferMapTest {
 			// Map<ByteBuffer, ByteBuffer> map2 = new HashMap<>();
 			try (StringMap map = new StringMap(map2, "simple")) {
 				map.put("four", "apple");
-				map.put("four", "grape");
-				map.put("four", "mellon");
+				String apple = map.put("four", "grape");
+				assertEquals("apple", apple);
+				String grape = map.put("four", "mellon");
+				assertEquals("grape", grape);
+				assertEquals("apple", apple);
 				map.put("one", "red");
 				map.put("two", "blue");
 				map.put("three", "green");
@@ -149,6 +200,31 @@ public class PersistentBufferMapTest {
 			f.delete();
 		}
 
+	}
+
+	@Test
+	public void testCollisions() throws Exception {
+		File f = File.createTempFile("test.", ".mapdb");
+		try (GsonMap<H, Person> map = new GsonMap<>(new PersistentBufferMap(f, 5), "testCollisions",
+				H.class, Person.class)) {
+			map.put(new H("Joe"), new Person("Joseph", 45));
+			System.out.println("t1:" + map);
+			Assert.assertEquals(45, map.get(new H("Joe")).age);
+			map.put(new H("Missy"), new Person("Missy", 44));
+			System.out.println("t2:" + map);
+			Assert.assertEquals(45, map.get(new H("Joe")).age);
+			Assert.assertEquals(44, map.get(new H("Missy")).age);
+			map.put(new H("Meeks"), new Person("Meeks", 43));
+			map.put(new H("Mike"), new Person("Mike", 43));
+			Assert.assertEquals(4, map.size());
+			Assert.assertEquals(4, map.keySet().size());
+		}
+		try (GsonMap<H, Person> map = new GsonMap<>(new PersistentBufferMap(f, -1), "testCollisions",
+				H.class, Person.class)) {
+			map.keySet().forEach(k -> System.err.println("key:" + k));
+			Assert.assertEquals(4, map.size());
+			Assert.assertEquals(4, map.keySet().size());
+		}
 	}
 
 }
