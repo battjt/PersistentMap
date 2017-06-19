@@ -50,8 +50,7 @@ public class BBBuffer implements AutoCloseable {
 	}
 
 	public ByteBuffer getBuffer(int size) {
-		MappedByteBuffer buf = pageBuffer(size);
-		ByteBuffer slice = buf.slice();
+		ByteBuffer slice = pageBuffer(size).slice();
 		slice.limit(size);
 		return slice;
 	}
@@ -74,7 +73,8 @@ public class BBBuffer implements AutoCloseable {
 			if (position + size > fileLength) {
 				// FIXME why -1?
 				fileLength = (Long.highestOneBit(position + size) << 1) - 1;
-				System.err.format("resize: %x getBuffer(%x) at %x\n", fileLength, size, position);
+				// System.err.format("resize: %x getBuffer(%x) at %x\n",
+				// fileLength, size, position);
 				file.seek(fileLength - 1);
 				file.write(0);
 				if (!buffers.isEmpty()) {
@@ -91,7 +91,8 @@ public class BBBuffer implements AutoCloseable {
 			try {
 				int start = offset << 30;
 				long bufferSize = Math.min(fileLength - start, 0x40000000);
-				System.err.println("BigBuffer.create:" + start + " - " + bufferSize);
+				// System.err.println("BigBuffer.create:" + start + " - " +
+				// bufferSize);
 				buf = file.getChannel().map(MapMode.READ_WRITE, start, bufferSize);
 				while (buffers.size() <= offset) {
 					buffers.add(null);
@@ -116,16 +117,16 @@ public class BBBuffer implements AutoCloseable {
 	}
 
 	public void putBuffer(ByteBuffer b) {
-		b.rewind();
-		getBuffer(Integer.BYTES + b.remaining()).putInt(b.remaining()).put(b);
+		b.rewind(); // FIXME why?
+		pageBuffer(Integer.BYTES + b.remaining()).putInt(b.remaining()).put(b);
 	}
 
 	public void putInt(int value) {
-		getBuffer(Integer.BYTES).putInt(value);
+		pageBuffer(Integer.BYTES).putInt(value);
 	}
 
 	public void putLong(long value) {
-		getBuffer(Long.BYTES).putLong(value);
+		pageBuffer(Long.BYTES).putLong(value);
 	}
 
 	public void skip() {

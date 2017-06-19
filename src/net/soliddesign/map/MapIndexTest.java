@@ -104,7 +104,7 @@ public class MapIndexTest {
 		System.err.println("words found:" + count);
 		long start = System.currentTimeMillis();
 
-		try (PersistentBufferMap pers = new PersistentBufferMap(f, 4)) {
+		try (PersistentBufferMap pers = new PersistentBufferMap(f, count)) {
 			// Map<ByteBuffer, ByteBuffer> pers = new HashMap<>(count / 10);
 			Comparator<String> comparator = (a, b) -> a.compareTo(b);
 			MapIndex<String, String> index = new MapIndex<>(pers, "words",
@@ -120,13 +120,17 @@ public class MapIndexTest {
 					});
 			index.find("boom", "box").forEach(x -> System.err.println("Boom: " + x));
 			Assert.assertEquals(count, index.find(null, null).count());
-			System.err.println("check balance");
+			int depth = index.depth();
+			System.err.println("depth:" + depth + " count:" + count);
+			Assert.assertTrue(depth < count / 100);
 		}
 
 		try (PersistentBufferMap pers = new PersistentBufferMap(f, -1)) {
 			MapIndex<String, String> index = new MapIndex<>(pers, "words",
 					String.CASE_INSENSITIVE_ORDER, BBBroker.stringBroker, BBBroker.stringBroker);
-			index.find("A", "B").forEach(x -> System.err.println(x));
+			Assert.assertEquals(Files.lines(Paths.get("/usr/share/dict/words"))
+					.filter(w -> "B".equals(w) || w.endsWith("A")).count(),
+					index.find("A", "B").count());
 		}
 		Assert.assertTrue("Too slow.", System.currentTimeMillis() - start < 30000);
 	}

@@ -62,6 +62,14 @@ public class MapIndex<T, K> {
 		long right;
 		T value;
 
+		public int depth() {
+			int depth = 0;
+			depth = right > 0 ? Math.max(depth, getNode(right).depth()) : depth;
+			depth = left > 0 ? Math.max(depth, getNode(left).depth()) : depth;
+			depth++;
+			return depth;
+		}
+
 		void dump(String prefix, PrintStream out) {
 			out.println(prefix + " ID:" + id + " v:" + value + " list:" + items.get(list));
 			if (left != 0) {
@@ -113,7 +121,7 @@ public class MapIndex<T, K> {
 				} else {
 					double put = getNode(right).put(value, key) / 2;
 					if (put > Math.random()) {
-						// rotateLeft();
+						rotateLeft();
 					}
 					return put;
 				}
@@ -125,7 +133,7 @@ public class MapIndex<T, K> {
 				} else {
 					double put = getNode(left).put(value, key) / 2;
 					if (put > Math.random()) {
-						// rotateRight();
+						rotateRight();
 					}
 					return put;
 				}
@@ -189,16 +197,14 @@ public class MapIndex<T, K> {
 
 	static private Random random = new Random();
 
-	private static long id = 1;
-
 	/**
 	 * just guess until we find an unused ID. Should be fine since we are using
 	 * longs for ids
 	 */
 	static private long newMapId(Map<Long, ?> map) {
-		// long id = 1 + Math.abs(random.nextLong());
-		while (map.containsKey(++id)) {
-			System.err.println("collision:" + id++);
+		long id = 1 + Math.abs(random.nextLong());
+		while (map.containsKey(id)) {
+			id++;
 		}
 		return id;
 	}
@@ -267,6 +273,10 @@ public class MapIndex<T, K> {
 						longBroker.toBB(v.list));
 			}
 		});
+	}
+
+	public int depth() {
+		return getNode(0).depth();
 	}
 
 	public void dump(PrintStream out) {
