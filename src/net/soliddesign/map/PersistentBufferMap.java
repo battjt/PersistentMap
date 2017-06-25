@@ -14,6 +14,21 @@ import java.util.stream.Stream;
 
 public class PersistentBufferMap implements Map<ByteBuffer, ByteBuffer>, AutoCloseable {
 
+	/**
+	 * <pre>
+	 * file structure:
+	 * version
+	 * indexSize
+	 * index.0
+	 * index.1
+	 * index.2
+	 * ....
+	 * data(next, key, value)
+	 * data(next, key, value)
+	 * data(next, key, value)
+	 * </pre>
+	 */
+
 	// so that we can evolve the file format
 	static final private int VERSION = 1;
 	// maximum number of bytes to sample from key for hash value.
@@ -83,7 +98,6 @@ public class PersistentBufferMap implements Map<ByteBuffer, ByteBuffer>, AutoClo
 	}
 
 	private int bucket(ByteBuffer key) {
-		key.rewind();
 		int hash = 1;
 		// don't sample more than SAMPLES
 		int step = key.limit() > SAMPLES ? key.limit() / SAMPLES : 1;
@@ -112,7 +126,7 @@ public class PersistentBufferMap implements Map<ByteBuffer, ByteBuffer>, AutoClo
 
 	@Override
 	public boolean containsKey(Object key) {
-		return getH(key) != null;
+		return get(key) != null;
 	}
 
 	@Override
@@ -132,14 +146,6 @@ public class PersistentBufferMap implements Map<ByteBuffer, ByteBuffer>, AutoClo
 
 	@Override
 	public ByteBuffer get(Object key) {
-		ByteBuffer o = getH(key);
-		if (o == null) {
-			// System.err.println("null: PersistentBufferMap:138");
-		}
-		return o;
-	}
-
-	private ByteBuffer getH(Object key) {
 		// read the index entry
 		int bucket = bucket((ByteBuffer) key);
 		buf.position(indexPointer + Long.BYTES * bucket);
@@ -147,12 +153,12 @@ public class PersistentBufferMap implements Map<ByteBuffer, ByteBuffer>, AutoClo
 		while (listPointer > 0) {
 			// iterate through the bucket of pairs
 			buf.position(listPointer);
+			listPointer = buf.getLong();// next
 			ByteBuffer candidate = buf.getBuffer();
 			ByteBuffer value = buf.getBuffer();
 			if (candidate.equals(key)) {
 				return value;
 			}
-			listPointer = buf.getLong();
 		}
 		return null;
 	}
@@ -164,16 +170,13 @@ public class PersistentBufferMap implements Map<ByteBuffer, ByteBuffer>, AutoClo
 
 	@Override
 	public boolean isEmpty() {
-		long index = 0;
-		long item = -1;
-		while (item < 0) {
-			if (index >= indexSize) {
-				return true;
+		buf.position(indexPointer);
+		for (int index = 0; index < indexSize; index++) {
+			if (buf.getLong() >= 0) {
+				return false;
 			}
-			buf.position(indexPointer + index++ * Long.BYTES);
-			item = buf.getLong();
 		}
-		return false;
+		return true;
 	}
 
 	@Override
@@ -185,15 +188,15 @@ public class PersistentBufferMap implements Map<ByteBuffer, ByteBuffer>, AutoClo
 	public ByteBuffer put(ByteBuffer key, ByteBuffer value) {
 		long offset = buf.length();
 		buf.position(offset);
+		buf.putLong(-1);
 		buf.putBuffer(key);
 		buf.putBuffer(value);
-		buf.putLong(-1);
 
 		// read the index entry
 		buf.position(indexPointer + Long.BYTES * bucket(key));
+		long oldPointer = buf.position();
 		long listPointer = buf.getLong();
 		while (true) {
-			long oldPointer = buf.position() - Long.BYTES;
 			if (listPointer < 0) {
 				// no replacement, just append
 				buf.position(oldPointer);
@@ -202,21 +205,20 @@ public class PersistentBufferMap implements Map<ByteBuffer, ByteBuffer>, AutoClo
 			}
 			// iterate through the bucket of pairs
 			buf.position(listPointer);
+			long oldP2 = buf.position();
+			listPointer = buf.getLong();
 			ByteBuffer candidate = buf.getBuffer();
 			ByteBuffer old = buf.getBuffer();
-			// key.rewind();
+			key.rewind(); // really
 			if (candidate.equals(key)) {
 				// replacing old value in linked list
-				long next = buf.getLong();
 				buf.position(oldPointer);
 				buf.putLong(offset);
 				buf.position(offset);
-				buf.skip();
-				buf.skip();
-				buf.putLong(next);
+				buf.putLong(listPointer);
 				return old;
 			}
-			listPointer = buf.getLong();
+			oldPointer = oldP2;
 		}
 	}
 
@@ -229,45 +231,40 @@ public class PersistentBufferMap implements Map<ByteBuffer, ByteBuffer>, AutoClo
 	public ByteBuffer remove(Object key) {
 		// read the index entry
 		buf.position(indexPointer + Long.BYTES * bucket((ByteBuffer) key));
+		long oldPointer = buf.position();
 		long listPointer = buf.getLong();
 		while (true) {
 			if (listPointer < 0) {
 				return null;
 			}
-			long oldPointer = buf.position() - Long.BYTES;
 			buf.position(listPointer);
+			long old2 = buf.position();
+			listPointer = buf.getLong();
 			ByteBuffer candidate = buf.getBuffer();
 			ByteBuffer value = buf.getBuffer();
 			if (candidate.equals(key)) {
-				long next = buf.getLong();
 				buf.position(oldPointer);
-				buf.putLong(next);
+				buf.putLong(listPointer);
 				return value;
 			}
-			listPointer = buf.getLong();
+			oldPointer = old2;
 		}
 	}
 
 	@Override
 	/** will return invalid values for > Integer.MAX_VALUE */
 	public int size() {
-		long index = 0;
-		long item = -1;
 		int count = 0;
-		while (true) {
-			while (item < 0) {
-				if (index >= indexSize) {
-					return count;
-				}
-				buf.position(indexPointer + index++ * Long.BYTES);
-				item = buf.getLong();
+		for (int i = 0; i < indexSize; i++) {
+			buf.position(indexPointer + i * Long.BYTES);
+			long list = buf.getLong();
+			while (list >= 0) {
+				count++;
+				buf.position(list);
+				list = buf.getLong();
 			}
-			buf.position(item);
-			count++;
-			buf.skip();
-			buf.skip();
-			item = buf.getLong();
 		}
+		return count;
 	}
 
 	public Stream<java.util.Map.Entry<ByteBuffer, ByteBuffer>> stream() {
@@ -280,8 +277,8 @@ public class PersistentBufferMap implements Map<ByteBuffer, ByteBuffer>, AutoClo
 					offset = buf.getLong();
 					while (offset > 0) {
 						buf.position(offset);
-						sb.add(new AbstractMap.SimpleEntry<>(buf.getBuffer(), buf.getBuffer()));
 						offset = buf.getLong();
+						sb.add(new AbstractMap.SimpleEntry<>(buf.getBuffer(), buf.getBuffer()));
 					}
 					return sb.build();
 				}).flatMap(x -> x);
@@ -326,8 +323,8 @@ public class PersistentBufferMap implements Map<ByteBuffer, ByteBuffer>, AutoClo
 	// toString(list Id)
 	private Object toString(long id) {
 		buf.position(id);
-		String str = "list:" + id + ": \n\t" + toString(buf) + "\n\t\t" + toString(buf);
 		long next = buf.getLong();
+		String str = "list:" + id + ": \n\t" + toString(buf) + "\n\t\t" + toString(buf);
 		if (next >= 0) {
 			str += "->" + toString(next) + "\n";
 		}

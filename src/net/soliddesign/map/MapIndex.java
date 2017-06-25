@@ -3,11 +3,18 @@ package net.soliddesign.map;
 import java.io.ByteArrayOutputStream;
 import java.io.PrintStream;
 import java.nio.ByteBuffer;
+import java.util.ArrayList;
 import java.util.Comparator;
+import java.util.Iterator;
+import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 import java.util.Random;
+import java.util.Spliterator;
+import java.util.function.Consumer;
+import java.util.function.Supplier;
 import java.util.stream.Stream;
+import java.util.stream.StreamSupport;
 
 /**
  *
@@ -22,13 +29,6 @@ public class MapIndex<T, K> {
 		long next;
 		K value;
 
-		private Stream<K> list() {
-			if (next == 0) {
-				return Stream.of(value);
-			}
-			return Stream.concat(Stream.of(value), items.get(next).list());
-		}
-
 		public void remove(K k) {
 			if (next != 0) {
 				ListItem item = items.get(next);
@@ -40,6 +40,38 @@ public class MapIndex<T, K> {
 					item.remove(k);
 				}
 			}
+		}
+
+		public Spliterator<K> spliterator() {
+			return new Spliterator<K>() {
+				long n = id;
+
+				@Override
+				public int characteristics() {
+					return CONCURRENT;
+				}
+
+				@Override
+				public long estimateSize() {
+					return Long.MAX_VALUE;
+				}
+
+				@Override
+				public boolean tryAdvance(Consumer<? super K> action) {
+					if (n > 0) {
+						MapIndex<T, K>.ListItem item = items.get(n);
+						n = item.next;
+						action.accept(item.value);
+						return true;
+					}
+					return false;
+				}
+
+				@Override
+				public Spliterator<K> trySplit() {
+					return null;
+				}
+			};
 		}
 
 		@Override
@@ -82,25 +114,55 @@ public class MapIndex<T, K> {
 			}
 		}
 
-		// FIXME this should recurse on demand, not at call time.
-		public Stream<K> find(T min, T max) {
-			int cMin = min == null ? -1 : comparator.compare(min, value);
-			int cMax = max == null ? -1 : comparator.compare(value, max);
-			boolean useLeft = cMin < 0 && left != 0;
-			boolean useThis = cMin <= 0 && cMax <= 0;
-			boolean useRight = cMax < 0 && right != 0;
+		public Spliterator<K> find(T min, T max) {
+			return new Spliterator<K>() {
+				{
+					List<Supplier<Spliterator<K>>> subs = new ArrayList<>();
+					int cMin = min == null ? -1 : comparator.compare(min, value);
+					int cMax = max == null ? -1 : comparator.compare(value, max);
+					if (cMin < 0 && left != 0) {
+						subs.add(() -> getNode(left).find(min, max));
+					}
+					if (cMin <= 0 && cMax <= 0) {
+						subs.add(() -> items.get(list).spliterator());
+					}
+					if (cMax < 0 && right != 0) {
+						subs.add(() -> getNode(right).find(min, max));
+					}
+					i = subs.iterator();
+				}
+				Spliterator<K> s;
+				Iterator<Supplier<Spliterator<K>>> i;
 
-			Stream<K> stream = Stream.empty();
-			if (useLeft) {
-				stream = getNode(left).find(min, max);
-			}
-			if (useThis) {
-				stream = Stream.concat(stream, items.get(list).list());
-			}
-			if (useRight) {
-				stream = Stream.concat(stream, getNode(right).find(min, max));
-			}
-			return stream;
+				@Override
+				public int characteristics() {
+					return ORDERED | CONCURRENT | IMMUTABLE;
+				}
+
+				@Override
+				public long estimateSize() {
+					return Long.MAX_VALUE;
+				}
+
+				@Override
+				public boolean tryAdvance(Consumer<? super K> action) {
+					if (s == null && i.hasNext()) { // initial call
+						s = i.next().get();
+					}
+					do {
+						if (s.tryAdvance(action)) {
+							return true;
+						}
+						s = i.hasNext() ? i.next().get() : null;
+					} while (s != null);
+					return false;
+				}
+
+				@Override
+				public Spliterator<K> trySplit() {
+					return i.hasNext() ? i.next().get() : null;
+				}
+			};
 		}
 
 		/**
@@ -161,19 +223,20 @@ public class MapIndex<T, K> {
 
 		// FIXME, not atomic
 		private void rotateLeft() {
+			// System.err.println("rotateLeft:" + depth());
 			MapIndex<T, K>.TreeNode old = getNode(right);
 			right = old.left;
 			old.left = old.id;
 			// swap IDs so that outside references are correct
 			old.id = id;
 			id = old.left;
-
 			putNode(this);
 			putNode(old);
 		}
 
 		// FIXME, not atomic
 		private void rotateRight() {
+			// System.err.println("rotateRight:" + depth());
 			MapIndex<T, K>.TreeNode old = getNode(left);
 			left = old.right;
 			old.right = old.id;
@@ -184,6 +247,17 @@ public class MapIndex<T, K> {
 
 			putNode(this);
 			putNode(old);
+		}
+
+		public long size() {
+			long size = 1;
+			if (right > 0) {
+				size += getNode(right).size();
+			}
+			if (left > 0) {
+				size += getNode(left).size();
+			}
+			return size;
 		}
 
 		@Override
@@ -279,6 +353,19 @@ public class MapIndex<T, K> {
 		return getNode(0).depth();
 	}
 
+	public String depthReport() {
+		MapIndex<T, K>.TreeNode root = getNode(0);
+		int r = root.right == 0 ? 0 : getNode(root.right).depth();
+		int l = root.left == 0 ? 0 : getNode(root.left).depth();
+		long rs = root.right == 0 ? 0 : getNode(root.right).size();
+		long ls = root.left == 0 ? 0 : getNode(root.left).size();
+		String str = "S:" + root.size() + " R:" + r + " RS:" + rs + " L:" + l + " LS:" + ls;
+		// ByteArrayOutputStream out = new ByteArrayOutputStream();
+		// dump(new PrintStream(out));
+
+		return str;
+	}
+
 	public void dump(PrintStream out) {
 		MapIndex<T, K>.TreeNode node = trees.get(0L);
 		if (node != null) {
@@ -288,7 +375,7 @@ public class MapIndex<T, K> {
 
 	public Stream<K> find(T min, T max) {
 		MapIndex<T, K>.TreeNode root = getNode(0L);
-		return root == null ? Stream.empty() : root.find(min, max);
+		return root == null ? Stream.empty() : StreamSupport.stream(root.find(min, max), false);
 	}
 
 	private MapIndex<T, K>.TreeNode getNode(long ind) {
@@ -322,20 +409,22 @@ public class MapIndex<T, K> {
 	public void put(T v, K k) {
 		MapIndex<T, K>.TreeNode root = trees.get(0L);
 		if (root == null) {
-			root = new TreeNode();
-			root.list = newList(0, k).id;
-			root.value = v;
-			putNode(root);
+			synchronized (this) {
+				root = trees.get(0L);
+				if (root == null) {
+					root = new TreeNode();
+					root.list = newList(0, k).id;
+					root.value = v;
+					putNode(root);
+				}
+			}
 		} else {
 			root.put(v, k);
 		}
 	}
 
 	private void putNode(MapIndex<T, K>.TreeNode node) {
-		MapIndex<T, K>.TreeNode oldNode = trees.put(node.id, node);
-		if (oldNode != null) {
-			// System.err.println("Replaced " + oldNode + " with " + node);
-		}
+		trees.put(node.id, node);
 	}
 
 	public void remove(T v, K k) {
@@ -347,9 +436,9 @@ public class MapIndex<T, K> {
 
 	@Override
 	public String toString() {
-		// ByteArrayOutputStream out = new ByteArrayOutputStream();
-		// dump(new PrintStream(out));
-		// return out.toString();
-		return "lists:" + items.toString() + "\ntrees:" + trees.toString();
+		ByteArrayOutputStream out = new ByteArrayOutputStream();
+		dump(new PrintStream(out));
+		return out.toString();
+		// return "lists:" + items.toString() + "\ntrees:" + trees.toString();
 	}
 }

@@ -8,6 +8,12 @@ import java.nio.MappedByteBuffer;
 import java.nio.channels.FileChannel.MapMode;
 import java.util.ArrayList;
 
+/**
+ * FIXME remove relative addressing, so that concurrent access is possible.
+ *
+ * @author joe
+ *
+ */
 public class BBBuffer implements AutoCloseable {
 	public static BBBuffer create(File fileName) throws IOException {
 		return new BBBuffer(fileName);
@@ -117,7 +123,6 @@ public class BBBuffer implements AutoCloseable {
 	}
 
 	public void putBuffer(ByteBuffer b) {
-		b.rewind(); // FIXME why?
 		pageBuffer(Integer.BYTES + b.remaining()).putInt(b.remaining()).put(b);
 	}
 

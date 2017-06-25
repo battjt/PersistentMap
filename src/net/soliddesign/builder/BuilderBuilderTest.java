@@ -156,7 +156,12 @@ public class BuilderBuilderTest {
 
 	@Test
 	public void simple() {
-		Person joe = Util.builder().name("Joe").age(42).eyes(Color.blue).height(72).build();
+		Person joe = Util.builder()
+				.name("Joe")
+				.age(42)
+				.eyes(Color.blue)
+				.height(72)
+				.build();
 		assertEquals("Joe", joe.getName());
 		assertEquals(42, joe.getAge());
 		assertEquals(Color.blue, joe.getEyes());
@@ -192,8 +197,7 @@ public class BuilderBuilderTest {
 			Util.builder().build();
 		} catch (IllegalStateException e) {
 			// this is fragile. name may come before age if the data structure
-			// is
-			// changed
+			// is changed
 			assertEquals("Required properties:[age, name]", e.getMessage());
 		}
 	}
